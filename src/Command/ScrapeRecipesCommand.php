@@ -26,45 +26,45 @@ class ScrapeRecipesCommand extends Command
     {
         $io = new SymfonyStyle($input, $output);
         $this->client = HttpClient::createForBaseUri('https://www.ah.nl');
-
         $pageNo = 0;
-
+        // Initial visit to find out how many pages there are, and fetch recipe URLs
         try {
             $crawler = $this->visitPage($pageNo);
         } catch (\Exception $e) {
             $io->error($e->getMessage());
             return Command::FAILURE;
         }
-
+        // Find link to last page
         $lastPageLink = $crawler->filter('nav[role=navigation]')->children('ol > li > a')->last()->extract(['href']);
-        if ($lastPageLink) {
-            $queryString = parse_url($lastPageLink[0], PHP_URL_QUERY);
-            parse_str($queryString, $queryParameters);
-            if (!isset($queryParameters['page'])) {
-                $io->error('Last page number not found.');
-                return Command::FAILURE;
-            }
-            $lastPageNo = (int) $queryParameters['page'];
-
-            $progressBar = new ProgressBar($io, $lastPageNo);
-            $progressBar->setFormat(ProgressBar::FORMAT_DEBUG);
-            while ($pageNo < $lastPageNo) {
-                usleep(500000);
-                $pageNo++;
-                try {
-                    $this->visitPage($pageNo);
-                    $progressBar->advance();
-                } catch (\Exception $e) {
-                    $progressBar->finish();
-                    $io->error($e->getMessage());
-                    return Command::FAILURE;
-                }
-            }
-            $progressBar->finish();
-        } else {
+        if (empty($lastPageLink)) {
             $io->error('Last page link not found.');
             return Command::FAILURE;
         }
+        // Parse link to check for page number
+        $queryString = parse_url($lastPageLink[0], PHP_URL_QUERY);
+        parse_str($queryString, $queryParameters);
+        if (!isset($queryParameters['page'])) {
+            $io->error('Last page number not found.');
+            return Command::FAILURE;
+        }
+        $lastPageNo = (int) $queryParameters['page'];
+
+        $progressBar = new ProgressBar($io, $lastPageNo);
+        $progressBar->setFormat(ProgressBar::FORMAT_DEBUG);
+        while ($pageNo < $lastPageNo) {
+            // Sleep for 0.5 seconds, so the devs of ah.nl don't get angry at us
+            usleep(500000);
+            $pageNo++;
+            try {
+                $this->visitPage($pageNo);
+                $progressBar->advance();
+            } catch (\Exception $e) {
+                $progressBar->finish();
+                $io->error($e->getMessage());
+                return Command::FAILURE;
+            }
+        }
+        $progressBar->finish();
 
         file_put_contents('recipes.json', json_encode($this->recipeUrls, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
         $io->success('Done.');
@@ -73,6 +73,7 @@ class ScrapeRecipesCommand extends Command
     }
 
     /**
+     * Visit a page (by number) and crawl for recipe URLs
      * @throws \Symfony\Contracts\HttpClient\Exception\TransportExceptionInterface
      * @throws \Symfony\Contracts\HttpClient\Exception\ServerExceptionInterface
      * @throws \Symfony\Contracts\HttpClient\Exception\RedirectionExceptionInterface
